@@ -1,0 +1,7 @@
+*.ns[1-9]
+*.nev
+*.ccf
+*.timestamps.json
+corrected/
+__pycache__/
+.DS_Store

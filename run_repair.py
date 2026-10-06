@@ -1,68 +1,54 @@
 #!/usr/bin/env python3
-"""Run the NSx-only repair for one recording folder. Python 3.10+."""
-from argparse import Namespace
-from pathlib import Path
-import re
-import struct
+"""Find and repair devices affected by the Gemini PTP step_threshold defect. Python 3.10+, no packages."""
 import sys
+from pathlib import Path
 
 import TimestampRepair
 
-# Leave as None to use the folder containing this script.
-# Or enter your data folder, for example: ROOT_DIR = "/Users/nathan/Data/recording"
+# Folder holding the recording files with their original names (NSP-..., Hub1-..., Hub2-...).
+# None = the folder containing this script.
 ROOT_DIR = None
-TOLERANCE_MS = 2
-MAX_SAMPLE_DIFFERENCE = 30
-EXPECTED_RATE_DIFFERENCE_PERCENT = 6.4  # Report only; never used to fit or accept the correction.
+# Where corrected copies and timestamp_repair_report.json are written. None = ROOT_DIR/corrected
+OUTPUT_DIR = None
+# Device whose clock is trusted. 'auto' picks the NSP or lowest-numbered hub whose comment
+# times agree with the grandmaster. Hub1 is set explicitly here: the 2026-07-22 report shows
+# it locked to the grandmaster (10.8 ms median receipt latency, rate within 2.4 ppm), while
+# the NSP is free-running and a long way off it.
+REFERENCE = 'Hub1'
+# Limit the repair to some devices, e.g. ['Hub2']. None = check every device.
+DEVICES = None
+# Devices never repaired, but still reported with the reason. The NSP's comment receipt times
+# scatter by 220+ ms, which is the quantity the fit is built from, so it cannot be corrected
+# by this method however the limits are set.
+SKIP = ['NSP']
+# Analyse and write the report only; no corrected files.
+DRY_RUN = False
+# Repair devices even if their clock looks fine.
+FORCE = False
 
-
-def select_file(root, hub, extension):
-    matches = sorted(p for p in root.iterdir() if p.is_file()
-                     and p.suffix.lower() == extension
-                     and re.match(rf'^{hub}[-_.]', p.name, re.IGNORECASE))
-    if len(matches) != 1:
-        names = '\n'.join(f'  {p.name}' for p in matches) or '  None found'
-        raise ValueError(f'Expected exactly one {hub} {extension} file in {root}.\n'
-                         f'{names}\nUse one session with full NS6 files, or only its part-1 NS6 files.')
-    if extension == '.ns6':
-        part = re.search(r'\.part(\d+)', matches[0].name, re.IGNORECASE)
-        if part and int(part.group(1)) != 1:
-            raise ValueError('Use full recordings or part 1. Later parts must not be independently realigned.')
-    return matches[0]
+# Acceptance limits. Review the report rather than loosening these to pass.
+LIMITS = dict(
+    max_bias_ms=0.10,
+    max_rms_ms=0.25,
+    max_abs_ms=0.50,
+    min_pairs=6,
+    max_three_way_ms=5.0,
+    max_three_way_skipped_ms=1000.0,
+)
 
 
 def main():
     root = Path(ROOT_DIR).expanduser().resolve() if ROOT_DIR else Path(__file__).resolve().parent
+    out = Path(OUTPUT_DIR).expanduser().resolve() if OUTPUT_DIR else root / 'corrected'
+    print(f'Data folder:   {root}')
+    print(f'Output folder: {out}')
     try:
-        if not root.is_dir():
-            raise ValueError(f'Data folder does not exist: {root}')
-        reference_nsx = select_file(root, 'Hub1', '.ns6')
-        target_nsx = select_file(root, 'Hub2', '.ns6')
-        reference_nev = select_file(root, 'Hub1', '.nev')
-        target_nev = select_file(root, 'Hub2', '.nev')
-        ref_part = re.search(r'\.part(\d+)', reference_nsx.name, re.IGNORECASE)
-        dst_part = re.search(r'\.part(\d+)', target_nsx.name, re.IGNORECASE)
-        if bool(ref_part) != bool(dst_part):
-            raise ValueError('Use full NS6 files for both hubs, or part-1 NS6 files for both hubs.')
-        output = root / 'corrected'
-        if output.exists():
-            raise ValueError(f'Output folder already exists: {output}\n'
-                             'Move or rename it before running again. Existing results will not be overwritten.')
-        print(f'Data folder: {root}')
-        print(f'Reference NS6: {reference_nsx.name}')
-        print(f'Target NS6: {target_nsx.name}')
-        print(f'Reference NEV: {reference_nev.name}')
-        print(f'Target NEV: {target_nev.name}')
-        print(f'Validation tolerance: {TOLERANCE_MS} ms')
-        print(f'Maximum sample-count difference: {MAX_SAMPLE_DIFFERENCE} samples/channel')
-        print('Aligning first samples; estimating rate from NSx only. NEVs validate exact comments.', flush=True)
-        return TimestampRepair.repair_nsx(Namespace(
-            reference_nsx=str(reference_nsx), nsx=str(target_nsx),
-            reference_nev=str(reference_nev), target_nev=str(target_nev),
-            tolerance_ms=str(TOLERANCE_MS), expected_rate_difference_percent=str(EXPECTED_RATE_DIFFERENCE_PERCENT),
-            max_sample_difference=MAX_SAMPLE_DIFFERENCE,
-            output=str(output), write=True))
-    except (ValueError, OSError, OverflowError, struct.error) as exc:
+        if out.exists() and any(out.iterdir()):
+            raise TimestampRepair.RepairError(f'{out} is not empty. Move or rename it first; '
+                                              'existing results are never overwritten.')
+        return TimestampRepair.repair_folder(root, out, reference=REFERENCE, only=DEVICES, force=FORCE,
+                                             write=not DRY_RUN, skip=SKIP, **LIMITS)
+    except (TimestampRepair.RepairError, OSError) as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
         return 1
 

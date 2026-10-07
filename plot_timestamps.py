@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import TimestampRepair
 
 # Folder holding the recording files. None = the folder containing this script.
-DATA_DIR = "/Users/mccutcheon/Desktop/BCI/Data/Kramer/Kramer_Timestamps/"
+DATA_DIR = None
 # Session base name, e.g. '20260722-144417-144454-NBack-SUM-001'.
 # None = the only session present; the script lists them if there is more than one.
 SESSION = None

@@ -28,12 +28,13 @@ FORCE = False
 
 # Acceptance limits. Review the report rather than loosening these to pass.
 LIMITS = dict(
-    max_bias_ms=0.10,
-    max_rms_ms=0.25,
-    max_abs_ms=0.50,
-    min_pairs=6,
-    max_three_way_ms=5.0,
-    max_three_way_skipped_ms=1000.0,
+    min_bursts=6,
+    min_bursts_per_stretch=2,
+    burst_gap_ms=2.0,
+    max_band_ms=0.10,
+    alpha=0.01,
+    min_effect_ms=0.10,
+    gap_tolerance_samples=0.1,
 )
 
 
@@ -47,7 +48,7 @@ def main():
             raise TimestampRepair.RepairError(f'{out} is not empty. Move or rename it first; '
                                               'existing results are never overwritten.')
         return TimestampRepair.repair_folder(root, out, reference=REFERENCE, only=DEVICES, force=FORCE,
-                                             write=not DRY_RUN, skip=SKIP, **LIMITS)
+                                             write=not DRY_RUN, skip=SKIP, launcher=Path(__file__), **LIMITS)
     except (TimestampRepair.RepairError, OSError) as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
         return 1
